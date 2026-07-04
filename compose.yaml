@@ -1,0 +1,85 @@
+---
+services:
+  si-bot:
+    image: spiritisland_pbp:latest
+    container_name: si-bot
+    restart: unless-stopped
+    networks: [si-backend]
+    environment:
+      DJANGO_HOST: si-pbp
+      REDIS_HOST: si-redis
+    env_file: .env
+    healthcheck:
+      interval: 1m30s
+      retries: 5
+      start_period: 30s
+      test: pgrep -af python || exit 1
+      timeout: 30s
+    volumes:
+      - .:/app
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 500M
+    entrypoint: run-bot.sh
+    pull_policy: never
+
+  si-pbp:
+    image: spiritisland_pbp
+    build: .
+    container_name: si-pbp
+    restart: unless-stopped
+    networks:
+      - reverse-proxy
+      - si-backend
+    expose:
+      - 8000
+    environment:
+      ALLOWED_IPS: 192.168.0.0/16,172.16.0.0/12,10.0.0.0/8,127.0.0.1
+      DJANGO_HOST: si-pbp
+      REDIS_HOST: si-redis
+    env_file: .env
+    depends_on:
+      - si-redis
+    volumes:
+      - .:/app
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.si.middlewares=authentik-forwardAuth@file
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 500M
+    pull_policy: never
+
+  si-redis:
+    image: redis:latest
+    container_name: si-redis
+    command: ["--save", "60", "1", "--loglevel", "warning"]
+    restart: always
+    networks: [si-backend]
+    expose:
+      - "6379"
+    env_file: .env
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 20s
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      timeout: 3s
+    volumes:
+      - ./cache:/data
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 500M
+
+networks:
+  reverse-proxy:
+    name: reverse-proxy
+
+  si-backend:
+    name: si-backend
